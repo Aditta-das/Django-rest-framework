@@ -160,11 +160,97 @@ from django.http import Http404
 # Using the mixin classes we've rewritten the views to use slightly less code than before, but we can go one step further. REST framework provides a set of already mixed-in generic views that we can use to trim down our views.py module even more.
 
 from rest_framework import generics
+from rest_framework import permissions
+from snippets.permissions import IsOwnerOrReadOnly
 
-class SnippetList(generics.ListCreateAPIView):
+
+# class SnippetList(generics.ListCreateAPIView):
+# 	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+# 	queryset = Snippet.objects.all()
+# 	serializer_class = SnippetSerializer
+
+# 	def perform_create(self, serializer):
+# 		serializer.save(owner=self.request.user)
+
+# class SnippetDetail(generics.RetrieveUpdateDestroyAPIView):
+# 	permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+# 	queryset = Snippet.objects.all()
+# 	serializer_class = SnippetSerializer
+
+from snippets.serializers import UserSerializer
+from django.contrib.auth.models import User
+
+
+# class UserList(generics.ListAPIView):
+# 	queryset = User.objects.all()
+# 	serializer_class = UserSerializer
+
+# class UserDetail(generics.RetrieveAPIView):
+# 	queryset = User.objects.all()
+# 	serializer_class = UserSerializer
+
+# Tutorial 5: Relationships & Hyperlinked APIs
+
+# At the moment relationships within our API are represented by using primary keys. In this part of the tutorial we'll improve the cohesion and discoverability of our API, by instead using hyperlinking for relationships. Creating an endpoint for the root of our API
+
+# Right now we have endpoints for 'snippets' and 'users', but we don't have a single entry point to our API. To create one, we'll use a regular function-based view and the @api_view decorator we introduced earlier. In your snippets/views.py add:
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework.reverse import reverse
+
+@api_view(['GET'])
+def api_root(request, format=None):
+	return Response({
+		'users' : reverse('user-list', request=request, format=format),
+		'snippets': reverse('snippet-list', request=request, format=format)
+		})
+# Creating an endpoint for the highlighted snippets
+
+# The other obvious thing that's still missing from our pastebin API is the code highlighting endpoints.
+
+# Unlike all our other API endpoints, we don't want to use JSON, but instead just present an HTML representation. There are two styles of HTML renderer provided by REST framework, one for dealing with HTML rendered using templates, the other for dealing with pre-rendered HTML. The second renderer is the one we'd like to use for this endpoint. The other thing we need to consider when creating the code highlight view is that there's no existing concrete generic view that we can use. We're not returning an object instance, but instead a property of an object instance. Instead of using a concrete generic view, we'll use the base class for representing instances, and create our own .get() method. In your snippets/views.py add:
+
+from rest_framework import renderers
+from rest_framework.response import Response
+
+# class SnippetHighlight(generics.GenericAPIView):
+#     queryset = Snippet.objects.all()
+#     renderer_classes = [renderers.StaticHTMLRenderer]
+
+#     def get(self, request, *args, **kwargs):
+#         snippet = self.get_object()
+#         return Response(snippet.higlighted) # highligthed, i wrote 'higlighted' in model
+
+# Refactoring to use ViewSets
+
+# Let's take our current set of views, and refactor them into view sets.
+
+# First of all let's refactor our UserList and UserDetail views into a single UserViewSet. We can remove the two views, and replace them with a single class:
+
+from rest_framework import viewsets
+class UserViewSet(viewsets.ReadOnlyModelViewSet):
+	queryset = User.objects.all()
+	serializer_class = UserSerializer
+
+
+# Here we've used the ReadOnlyModelViewSet class to automatically provide the default 'read-only' operations. We're still setting the queryset and serializer_class attributes exactly as we did when we were using regular views, but we no longer need to provide the same information to two separate classes.
+
+# Next we're going to replace the SnippetList, SnippetDetail and SnippetHighlight view classes. We can remove the three views, and again replace them with a single class.
+
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework import permissions
+
+class SnippetViewSet(viewsets.ModelViewSet):
 	queryset = Snippet.objects.all()
 	serializer_class = SnippetSerializer
+	permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
-class SnippetDetail(generics.RetrieveUpdateDestroyAPIView):
-	queryset = Snippet.objects.all()
-	serializer_class = SnippetSerializer
+	@action(detail=True, renderer_classes=[renderers.StaticHTMLRenderer])
+	def highlight(self, request, *args, **kwargs):
+		snippet = self.get_object()
+		return Response(snippet.higlighted) # highligthed, i wrote 'higlighted' in model
+
+	def perform_create(self, serialaizer):
+		serializer.save(owner=self.request.user)
